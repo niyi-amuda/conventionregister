@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#003B63"><title>Convention Admin</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+</head>
+<body>
+<header>
+<img class="logo" src="assets/logo.png" alt="Excellent Youth Fellowship logo">
+<div class="brand">EXCELLENT YOUTH FELLOWSHIP</div><h1>CONVENTION CHECK IN</h1><p>Registration Desk</p>
+</header>
+<main>
+<section class="card" id="loginCard">
+<h2>Admin Login</h2><p class="muted">Only authorised registration team members should use this page.</p>
+<form id="loginForm"><label>Email<input id="email" type="email" required></label><label>Password<input id="password" type="password" required></label><button>LOGIN</button><div id="loginError" class="error hidden"></div></form>
+</section>
+
+<div id="dashboard" class="hidden">
+<section class="card">
+<div class="topline"><div><h2>Scan QR Code</h2><p class="muted">Select the convention day, then scan the person's QR code.</p></div><button class="small secondary" id="logout">LOG OUT</button></div>
+<div class="dayrow" id="dayRow"></div>
+<div id="reader"></div><div id="scanResult" class="scanresult">Ready to scan.</div>
+<div style="margin-top:18px;border-top:1px solid #e0eaf0;padding-top:16px;">
+<p class="muted" style="margin:0 0 10px;">If QR scan doesn't work, enter registration number manually:</p>
+<div style="display:flex;gap:8px;">
+<input id="manualRegNo" placeholder="e.g. EYF-0042" style="flex:1;padding:10px 12px;border:1.5px solid #b0c8d8;border-radius:8px;font-size:15px;outline:none;" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+<button id="manualCheckinBtn" style="background:#003B63;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:15px;font-weight:bold;cursor:pointer;">CHECK IN</button>
+</div>
+</div>
+</section>
+<section class="card">
+<h2>Live Attendance</h2><p class="muted" id="dayLabel"></p>
+<div class="stats"><div><b id="total">0</b><span>Registered</span></div><div><b id="checked">0</b><span>Checked In</span></div><div><b id="remaining">0</b><span>Remaining</span></div></div>
+<div class="progress"><div id="progressBar"></div></div>
+<p id="progressText" class="center muted">0% checked in</p>
+</section>
+<section class="card">
+<h2>Branch Summary</h2><div id="branchSummary"></div>
+<button class="secondary" id="exportBtn">EXPORT REGISTRATIONS CSV</button>
+<button class="ghost" id="exportCheckinsBtn">EXPORT CHECK-INS CSV (ALL DAYS)</button>
+</section>
+<section class="card">
+<h2>Manage Registrations</h2>
+<p class="muted">Search and remove duplicate or unwanted registrations. Deleting a registration also removes its check-in history for every day.</p>
+<input class="searchbox" id="searchInput" placeholder="Search by name or registration number">
+<div class="reglist" id="regList"></div>
+</section>
+</div>
+</main>
+<footer>Admin dashboard • 2026 National Youth Convention</footer>
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
+const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+const branchList=["Headquarters","Ekpan","Effurun","Orhuwhorun","Edjeba","DSC","Ugbori","Akpologbe","Port Harcourt","Agbarho","Ughelli","Burutu","Lagos","Imode","Ofagbe","Ovwian","Ubeji","Orerokpe"];
+const CONVENTION_DAYS=[
+ {value:"2026-10-08",label:"Day 1 · Thursday, Oct 8"},
+ {value:"2026-10-09",label:"Day 2 · Friday, Oct 9"},
+ {value:"2026-10-11",label:"Day 3 · Sunday, Oct 11"}
+];
+let scanner=null, registrations=[], checkins=[], selectedDay=CONVENTION_DAYS[0].value, audioCtx=null;
+
+function playBeep(){
+ try{
+   if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+   if(audioCtx.state==="suspended") audioCtx.resume();
+   const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+   osc.type="sine"; osc.frequency.value=880;
+   gain.gain.setValueAtTime(0.0001,audioCtx.currentTime);
+   gain.gain.exponentialRampToValueAtTime(0.3,audioCtx.currentTime+0.01);
+   gain.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+0.28);
+   osc.connect(gain); gain.connect(audioCtx.destination);
+   osc.start(); osc.stop(audioCtx.currentTime+0.3);
+ }catch(e){}
+}
+
+// default to today's convention date if the device date falls within the convention, else Day 1
+(function pickDefaultDay(){
+ const todayStr=new Date().toISOString().slice(0,10);
+ const match=CONVENTION_DAYS.find(d=>d.value===todayStr);
+ if(match) selectedDay=match.value;
+})();
+
+function renderDayRow(){
+ dayRow.innerHTML=CONVENTION_DAYS.map(d=>`<button type="button" class="daybtn ${d.value===selectedDay?'active':''}" data-day="${d.value}">${d.label}</button>`).join("");
+ [...dayRow.querySelectorAll(".daybtn")].forEach(btn=>btn.onclick=()=>{selectedDay=btn.dataset.day;renderDayRow();render();});
+ const found=CONVENTION_DAYS.find(d=>d.value===selectedDay);
+ dayLabel.textContent="Showing attendance for: "+(found?found.label:selectedDay);
+}
+
+async function load(){
+ const [{data:regs,error:rErr},{data:cks,error:cErr}]=await Promise.all([
+   supabase.from("convention_registrations").select("*").order("created_at",{ascending:false}),
+   supabase.from("convention_checkins").select("*")
+ ]);
+ if(rErr){scanResult.textContent=rErr.message;return}
+ if(cErr){scanResult.textContent=cErr.message;return}
+ registrations=regs||[]; checkins=cks||[]; render();
+}
+
+function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+function render(){
+ const totalN=registrations.length;
+ const checkedIdsForDay=new Set(checkins.filter(c=>c.check_day===selectedDay).map(c=>c.registration_id));
+ const checkedN=checkedIdsForDay.size;
+ total.textContent=totalN; document.getElementById("checked").textContent=checkedN; remaining.textContent=totalN-checkedN;
+ const pct=totalN?Math.round(checkedN/totalN*100):0; progressBar.style.width=pct+"%"; progressText.textContent=pct+"% checked in";
+ branchSummary.innerHTML=branchList.map(b=>{
+   const inBranch=registrations.filter(x=>x.branch===b);
+   const c=inBranch.filter(x=>checkedIdsForDay.has(x.id));
+   return `<div class="branchrow"><span>${b}</span><strong>${c.length}/${inBranch.length}</strong></div>`;
+ }).join("");
+ renderRegList();
+}
+
+function renderRegList(){
+ const q=(searchInput.value||"").trim().toLowerCase();
+ const filtered=q?registrations.filter(r=>(r.full_name||"").toLowerCase().includes(q)||(r.registration_no||"").toLowerCase().includes(q)):registrations;
+ if(!filtered.length){regList.innerHTML='<div class="empty">No registrations found.</div>';return}
+ regList.innerHTML=filtered.map(r=>`<div class="regrow"><div class="info"><strong>${escapeHtml(r.full_name)}</strong><br><span class="muted">${escapeHtml(r.registration_no)} • ${escapeHtml(r.branch)}</span></div><button class="deletebtn" data-id="${r.id}">Delete</button></div>`).join("");
+ [...regList.querySelectorAll(".deletebtn")].forEach(btn=>btn.onclick=()=>deleteRegistration(btn.dataset.id));
+}
+searchInput.addEventListener("input",renderRegList);
+
+async function deleteRegistration(id){
+ const r=registrations.find(x=>x.id===id); if(!r) return;
+ if(!confirm(`Delete registration for ${r.full_name} (${r.registration_no})?\n\nThis cannot be undone and will remove their check-in history too.`)) return;
+ const {error}=await supabase.from("convention_registrations").delete().eq("id",id);
+ if(error){alert("Could not delete: "+error.message);return}
+ await load();
+}
+
+async function checkIn(regNo){
+ const x=registrations.find(r=>r.registration_no===regNo);
+ if(!x){scanResult.innerHTML="<b>Registration not found.</b><br>Ask the person to confirm their QR code.";return}
+ const already=checkins.find(c=>c.registration_id===x.id && c.check_day===selectedDay);
+ const dayLbl=(CONVENTION_DAYS.find(d=>d.value===selectedDay)||{}).label||selectedDay;
+ if(already){scanResult.innerHTML=`<b class="warn">ALREADY CHECKED IN — ${dayLbl}</b><br>${x.full_name}<br>${x.registration_no}<br>${x.branch}<br><span class="muted">${new Date(already.checked_in_at).toLocaleTimeString()}</span>`;return}
+ const {error}=await supabase.from("convention_checkins").insert({registration_id:x.id,check_day:selectedDay});
+ if(error){scanResult.textContent=error.message;return}
+ playBeep();
+ const daysAttended=checkins.filter(c=>c.registration_id===x.id).length+1;
+ scanResult.innerHTML=`<b class="successText">✓ CHECK IN SUCCESSFUL — ${dayLbl}</b><br><strong>${x.full_name}</strong><br>${x.registration_no}<br>${x.branch}<br><span class="muted">${daysAttended} of ${CONVENTION_DAYS.length} days attended so far</span>`;
+ await load();
+}
+
+manualCheckinBtn.onclick=async()=>{const val=manualRegNo.value.trim().toUpperCase();if(!val){manualRegNo.focus();return;}await checkIn(val);manualRegNo.value="";manualRegNo.focus();};manualRegNo.addEventListener("keydown",e=>{if(e.key==="Enter")manualCheckinBtn.click();});loginForm.addEventListener("submit",async e=>{e.preventDefault();loginError.classList.add("hidden");try{if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==="suspended")await audioCtx.resume();}catch(e){}const {error}=await supabase.auth.signInWithPassword({email:email.value,password:password.value});if(error){loginError.textContent=error.message;loginError.classList.remove("hidden")}else{start()}});
+logout.onclick=async()=>{await supabase.auth.signOut();location.reload()};
+
+async function start(){
+ loginCard.classList.add("hidden");dashboard.classList.remove("hidden");
+ renderDayRow();
+ await load();
+ scanner=new Html5Qrcode("reader");
+ try{await scanner.start({facingMode:"environment"},{fps:10,qrbox:{width:250,height:250}},checkIn,()=>{});}catch(e){scanResult.textContent="Camera could not start. Allow camera permission and make sure the site is using HTTPS."}
+ supabase.channel("convention-live")
+   .on("postgres_changes",{event:"*",schema:"public",table:"convention_registrations"},()=>load())
+   .on("postgres_changes",{event:"*",schema:"public",table:"convention_checkins"},()=>load())
+   .subscribe();
+}
+const {data:{session}}=await supabase.auth.getSession(); if(session) start();
+
+exportBtn.onclick=()=>{
+ const rows=[["Registration No","Name","Email","Phone","Branch","Age Group","EYF Member","Attended Before","Registered At"],
+   ...registrations.map(x=>[x.registration_no,x.full_name,x.email||"",x.phone,x.branch,x.age_group,x.eyf_member?"Yes":"No",x.attended_before?"Yes":"No",x.created_at])];
+ downloadCsv(rows,"2026_convention_registrations.csv");
+};
+exportCheckinsBtn.onclick=()=>{
+ const rows=[["Registration No","Name","Branch","Day","Checked In At"],
+   ...checkins.map(c=>{const r=registrations.find(x=>x.id===c.registration_id)||{};return [r.registration_no||"",r.full_name||"",r.branch||"",c.check_day,c.checked_in_at]})];
+ downloadCsv(rows,"2026_convention_checkins.csv");
+};
+function downloadCsv(rows,filename){
+ const csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");
+ const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=filename;a.click();
+}
+</script>
+</body></html>

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#003B63"><title>2026 Convention Registration</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+<header>
+<img class="logo" src="assets/logo.png" alt="Excellent Youth Fellowship logo">
+<div class="brand">EXCELLENT YOUTH FELLOWSHIP</div><h1>2026 NATIONAL YOUTH CONVENTION</h1><p>HIGHER REALMS &amp; REALITIES</p>
+</header>
+<main>
+<section class="card" id="formCard">
+<h2>Register for the Convention</h2><p class="muted">Fill in your details. Your unique EYF number and QR code will be generated automatically.</p>
+<form id="form">
+<label>Full Name<input id="full_name" required></label>
+<label>Email Address<input id="email" type="email" required></label>
+<label>Phone Number<input id="phone" required inputmode="tel"></label>
+<label>Branch<select id="branch" required></select></label>
+<label>Age Group<select id="age_group" required><option value="">Select age group</option><option>13 to 17</option><option>18 to 25</option><option>26 to 35</option><option>36 and above</option></select></label>
+<label>Are you an EYF member?<select id="eyf_member" required><option value="">Select an option</option><option value="Yes">Yes</option><option value="No">No</option></select></label>
+<label>Have you attended our Convention before?<select id="attended_before" required><option value="">Select an option</option><option value="Yes">Yes</option><option value="No">No</option></select></label>
+<button id="submitBtn">REGISTER NOW</button>
+<div id="error" class="error hidden"></div>
+</form>
+</section>
+
+<section class="card hidden" id="successCard">
+<div class="success">✓ Registration successful</div>
+<h2 id="nameOut"></h2>
+<div class="number" id="numberOut"></div>
+<div class="pill" id="branchOut"></div>
+<div id="qrcode"></div>
+<p class="muted center">Save this page or screenshot your registration card. Present the QR code at the registration desk each day. A confirmation email with your convention details and WhatsApp group link has also been sent to you.</p>
+<button class="secondary" onclick="window.print()">SAVE / PRINT CARD</button>
+<button class="ghost" onclick="location.reload()">REGISTER ANOTHER PERSON</button>
+</section>
+</main>
+<footer>October 8 to 11, 2026 • The Living Truth Church, 13, Maduku Street, Okumagba Layout, Warri</footer>
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
+const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+const branches=["Headquarters","Ekpan","Effurun","Orhuwhorun","Edjeba","DSC","Ugbori","Akpologbe","Port Harcourt","Agbarho","Ughelli","Burutu","Lagos","Imode","Ofagbe","Ovwian","Ubeji","Orerokpe"];
+const sel=document.getElementById("branch"); branches.forEach(b=>{let o=document.createElement("option");o.value=b;o.textContent=b;sel.appendChild(o)});
+form.addEventListener("submit",async e=>{
+ e.preventDefault(); submitBtn.disabled=true; submitBtn.textContent="REGISTERING…"; error.classList.add("hidden");
+ try{
+   const {data:no,error:nerr}=await supabase.rpc("next_convention_number"); if(nerr) throw nerr;
+   const {data,error:err}=await supabase.from("convention_registrations").insert({
+     registration_no:no,
+     full_name:full_name.value.trim(),
+     email:email.value.trim(),
+     phone:phone.value.trim(),
+     branch:branch.value,
+     age_group:age_group.value,
+     eyf_member:eyf_member.value==="Yes",
+     attended_before:attended_before.value==="Yes"
+   }).select().single();
+   if(err) throw err;
+   nameOut.textContent=data.full_name; numberOut.textContent=data.registration_no; branchOut.textContent=data.branch;
+   qrcode.innerHTML=""; new QRCode(qrcode,{text:data.registration_no,width:220,height:220,colorDark:"#003B63",colorLight:"#ffffff"});
+   formCard.classList.add("hidden"); successCard.classList.remove("hidden");
+   // Fire-and-forget confirmation email via Brevo (Vercel serverless function). Never blocks registration success.
+   fetch("/api/send-confirmation-email",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+     full_name:data.full_name, email:data.email, registration_no:data.registration_no, branch:data.branch
+   })}).catch(()=>{});
+ }catch(err){error.textContent=err.message||"Registration failed. Please try again.";error.classList.remove("hidden");submitBtn.disabled=false;submitBtn.textContent="REGISTER NOW"}
+});
+</script>
+</body></html>
