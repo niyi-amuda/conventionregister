@@ -20,7 +20,7 @@
 <label>Middle Name <span class="muted">(Optional)</span><input id="middle_name" autocomplete="additional-name" maxlength="50"></label>
 <label>Last Name<input id="last_name" required autocomplete="family-name" maxlength="50"></label>
 <label>Email Address<input id="email" type="email" required autocomplete="email" inputmode="email" maxlength="120"></label>
-<label>Phone Number<input id="phone" required inputmode="numeric" autocomplete="tel" maxlength="11" pattern="[0-9]{11}" placeholder="09012345006"></label>
+<label>Phone Number<input id="phone" required inputmode="numeric" autocomplete="tel" maxlength="11" pattern="[0-9]{11}"></label>
 <label>Branch<select id="branch" required></select></label>
 <label>Age Group<select id="age_group" required><option value="">Select age group</option><option>13 to 17</option><option>18 to 25</option><option>26 to 35</option><option>36 and above</option></select></label>
 <label>Are you an EYF member?<select id="eyf_member" required><option value="">Select an option</option><option value="Yes">Yes</option><option value="No">No</option></select></label>
@@ -46,8 +46,9 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+const form=document.getElementById("form"); const error=document.getElementById("error"); const submitBtn=document.getElementById("submitBtn"); const first_name=document.getElementById("first_name"); const middle_name=document.getElementById("middle_name"); const last_name=document.getElementById("last_name"); const email=document.getElementById("email"); const phone=document.getElementById("phone"); const branch=document.getElementById("branch"); const age_group=document.getElementById("age_group"); const eyf_member=document.getElementById("eyf_member"); const attended_before=document.getElementById("attended_before"); const nameOut=document.getElementById("nameOut"); const numberOut=document.getElementById("numberOut"); const branchOut=document.getElementById("branchOut"); const qrcode=document.getElementById("qrcode"); const formCard=document.getElementById("formCard"); const successCard=document.getElementById("successCard");
 const branches=["Headquarters","Ekpan","Effurun","Orhuwhorun","Edjeba","DSC","Ugbori","Akpologbe","Port Harcourt","Agbarho","Ughelli","Burutu","Lagos","Imode","Ofagbe","Ovwian","Ubeji","Orerokpe","Invitee"];
-const sel=document.getElementById("branch"); branches.forEach(b=>{let o=document.createElement("option");o.value=b;o.textContent=b;sel.appendChild(o)});
+branches.forEach(b=>{let o=document.createElement("option");o.value=b;o.textContent=b;branch.appendChild(o)});
 form.addEventListener("submit",async e=>{
  e.preventDefault();
 
