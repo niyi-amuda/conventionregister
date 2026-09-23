@@ -16,9 +16,11 @@
 <section class="card" id="formCard">
 <h2>Register for the Convention</h2><p class="muted">Fill in your details. Your unique EYF number and QR code will be generated automatically.</p>
 <form id="form">
-<label>Full Name<input id="full_name" required></label>
-<label>Email Address<input id="email" type="email" required></label>
-<label>Phone Number<input id="phone" required inputmode="tel"></label>
+<label>First Name<input id="first_name" required autocomplete="given-name" maxlength="50"></label>
+<label>Middle Name <span class="muted">(Optional)</span><input id="middle_name" autocomplete="additional-name" maxlength="50"></label>
+<label>Last Name<input id="last_name" required autocomplete="family-name" maxlength="50"></label>
+<label>Email Address<input id="email" type="email" required autocomplete="email" inputmode="email" maxlength="120"></label>
+<label>Phone Number<input id="phone" required inputmode="numeric" autocomplete="tel" maxlength="11" pattern="[0-9]{11}" placeholder="09012345006"></label>
 <label>Branch<select id="branch" required></select></label>
 <label>Age Group<select id="age_group" required><option value="">Select age group</option><option>13 to 17</option><option>18 to 25</option><option>26 to 35</option><option>36 and above</option></select></label>
 <label>Are you an EYF member?<select id="eyf_member" required><option value="">Select an option</option><option value="Yes">Yes</option><option value="No">No</option></select></label>
@@ -44,31 +46,122 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
-const branches=["Headquarters","Ekpan","Effurun","Orhuwhorun","Edjeba","DSC","Ugbori","Akpologbe","Port Harcourt","Agbarho","Ughelli","Burutu","Lagos","Imode","Ofagbe","Ovwian","Ubeji","Orerokpe"];
+const branches=["Headquarters","Ekpan","Effurun","Orhuwhorun","Edjeba","DSC","Ugbori","Akpologbe","Port Harcourt","Agbarho","Ughelli","Burutu","Lagos","Imode","Ofagbe","Ovwian","Ubeji","Orerokpe","Invitee"];
 const sel=document.getElementById("branch"); branches.forEach(b=>{let o=document.createElement("option");o.value=b;o.textContent=b;sel.appendChild(o)});
 form.addEventListener("submit",async e=>{
- e.preventDefault(); submitBtn.disabled=true; submitBtn.textContent="REGISTERING…"; error.classList.add("hidden");
+ e.preventDefault();
+
+ error.classList.add("hidden");
+
+ const firstName=titleCaseName(first_name.value);
+ const middleName=titleCaseName(middle_name.value);
+ const lastName=titleCaseName(last_name.value);
+ const emailValue=email.value.trim().toLowerCase();
+ const phoneValue=phone.value.trim();
+
+ if(!firstName || !lastName){
+   error.textContent="First Name and Last Name are required.";
+   error.classList.remove("hidden");
+   return;
+ }
+
+ if(!validName(firstName) || (middleName && !validName(middleName)) || !validName(lastName)){
+   error.textContent="Please enter valid names using letters only.";
+   error.classList.remove("hidden");
+   return;
+ }
+
+ if(!validEmail(emailValue)){
+   error.textContent="Please enter a valid email address.";
+   error.classList.remove("hidden");
+   return;
+ }
+
+ if(!validPhone(phoneValue)){
+   error.textContent="Phone number must contain exactly 11 digits, for example 09012345006.";
+   error.classList.remove("hidden");
+   return;
+ }
+
+ const fullName=[firstName,middleName,lastName].filter(Boolean).join(" ");
+
+ submitBtn.disabled=true;
+ submitBtn.textContent="REGISTERING…";
+
  try{
-   const {data:no,error:nerr}=await supabase.rpc("next_convention_number"); if(nerr) throw nerr;
+   const {data:no,error:nerr}=await supabase.rpc("next_convention_number");
+
+   if(nerr) throw nerr;
+
    const {data,error:err}=await supabase.from("convention_registrations").insert({
      registration_no:no,
-     full_name:full_name.value.trim(),
-     email:email.value.trim(),
-     phone:phone.value.trim(),
+     full_name:fullName,
+     email:emailValue,
+     phone:phoneValue,
      branch:branch.value,
      age_group:age_group.value,
      eyf_member:eyf_member.value==="Yes",
      attended_before:attended_before.value==="Yes"
    }).select().single();
+
    if(err) throw err;
-   nameOut.textContent=data.full_name; numberOut.textContent=data.registration_no; branchOut.textContent=data.branch;
-   qrcode.innerHTML=""; new QRCode(qrcode,{text:data.registration_no,width:220,height:220,colorDark:"#003B63",colorLight:"#ffffff"});
-   formCard.classList.add("hidden"); successCard.classList.remove("hidden");
-   // Fire-and-forget confirmation email via Brevo (Vercel serverless function). Never blocks registration success.
-   fetch("/api/send-confirmation-email",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-     full_name:data.full_name, email:data.email, registration_no:data.registration_no, branch:data.branch
-   })}).catch(()=>{});
- }catch(err){error.textContent=err.message||"Registration failed. Please try again.";error.classList.remove("hidden");submitBtn.disabled=false;submitBtn.textContent="REGISTER NOW"}
-});
+
+   nameOut.textContent=data.full_name;
+   numberOut.textContent=data.registration_no;
+   branchOut.textContent=data.branch;
+
+   qrcode.innerHTML="";
+
+   new QRCode(qrcode,{
+     text:data.registration_no,
+     width:220,
+     height:220,
+     colorDark:"#003B63",
+     colorLight:"#ffffff"
+   });
+
+   formCard.classList.add("hidden");
+   successCard.classList.remove("hidden");
+
+   fetch("/api/send-confirmation-email",{
+     method:"POST",
+     headers:{"Content-Type":"application/json"},
+     body:JSON.stringify({
+       full_name:data.full_name,
+       email:data.email,
+       registration_no:data.registration_no,
+       branch:data.branch
+     })
+   }).catch(()=>{});
+
+ }catch(err){
+   error.textContent=err.message||"Registration failed. Please try again.";
+   error.classList.remove("hidden");
+   submitBtn.disabled=false;
+   submitBtn.textContent="REGISTER NOW";
+ }
+
+function titleCaseName(value){
+ return value
+   .trim()
+   .replace(/\s+/g," ")
+   .toLowerCase()
+   .replace(/(^|[\s'’])([a-zà-ÿ])/g,(match,prefix,letter)=>{
+     return prefix+letter.toUpperCase();
+   });
+}
+
+function validName(value){
+ return /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ .]*$/.test(value.trim());
+}
+
+function validEmail(value){
+ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim());
+}
+
+function validPhone(value){
+ return /^\d{11}$/.test(value.trim());
+}
+
 </script>
 </body></html>
